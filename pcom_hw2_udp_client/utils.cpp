@@ -1,6 +1,8 @@
 #include "utils.hpp"
 
 #include <arpa/inet.h>
+#include <netinet/tcp.h>
+
 #include <iostream>
 #include <cstring>
 #include <sstream>
@@ -15,31 +17,93 @@ void DIE(int condition, const char *message)
     }
 }
 
-std::string message_datagram::get_data_type()
+ssize_t sendall(int tcp_socket, const void* data, size_t size)
+{
+    size_t bytes_sent = 0;
+    size_t bytes_remaining = size;
+
+    int rc;
+    while (bytes_remaining) {
+        rc = send(tcp_socket, (const char*)data + bytes_sent, bytes_remaining, 0);
+        if (rc < 0)
+            return -1;
+        
+        bytes_sent += rc;
+        bytes_remaining -= rc;
+    }
+    return bytes_sent;
+}
+
+ssize_t recvall(int tcp_socket, void* data, size_t size)
+{
+    size_t bytes_recv = 0;
+    size_t bytes_remaining = size;
+
+    int rc;
+    while (bytes_remaining) {
+        rc = recv(tcp_socket, (char*)data + bytes_recv, bytes_remaining, 0);
+
+        // Check if the client disconnected gracefully
+        if (rc == 0)
+            return 0;
+        
+        // Check if the client disconnected abruptly
+        if (rc < 0) {
+            // Retry if interrupted by a signal
+            if (errno == EINTR)
+                continue;
+            return -1;
+        }
+        
+        bytes_recv += rc;
+        bytes_remaining -= rc;
+    }
+    return bytes_recv;
+}
+
+void disable_nagle(int tcp_socket)
+{
+    int enable_option = 1;
+    int rc = setsockopt(tcp_socket, IPPROTO_TCP, TCP_NODELAY,
+                        &enable_option, sizeof(int));
+    DIE(rc < 0, "Failed to disable Nagle's algorithm");
+}
+
+std::string message::get_data_type()
 {
     switch (data_type)
     {
-    case 0:
+    case DATA_TYPE_INT:
         return "INT";
-    case 1:
+    case DATA_TYPE_SHORT_REAL:
         return "SHORT_REAL";
-    case 2:
+    case DATA_TYPE_FLOAT:
         return "FLOAT";
-    case 3:
+    case DATA_TYPE_STRING:
         return "STRING";  
     }
     return "INVALID";
 }
 
-std::string message_datagram::get_displayed_content()
+std::string message::get_displayed_content()
 {
+    uint8_t sign;
+    uint32_t number_network_order;
+    uint32_t number_host_order;
+
+    uint16_t number_times_100;
+    uint8_t exponent;
+    float float_result;
+
+    bool last_char_non_zero;
+
     std::stringstream ss;
+
     switch (data_type) {
-    case 0:
-        uint8_t sign = content[0];
-        uint32_t number_network_order;
+    case DATA_TYPE_INT:
+        sign = content[0];
         memcpy(&number_network_order, &content[1], 4);
-        uint32_t number_host_order = ntohl(number_network_order);
+        number_host_order = ntohl(number_network_order);
 
         if (sign == 1)
             ss << "-";
@@ -47,29 +111,26 @@ std::string message_datagram::get_displayed_content()
 
         return ss.str();
     
-    case 1:
-        uint16_t number_times_100;
+    case DATA_TYPE_SHORT_REAL:
         memcpy(&number_times_100, &content[0], 2);
 
-        float number = (float)number_times_100 / 100.f;
-        ss << std::setprecision(2) << number;
+        ss << std::setprecision(2) << (float)number_times_100 / 100.f;
         break;
     
-    case 2:
-        uint8_t sign = content[0];
-        uint32_t number_network_order;
+    case DATA_TYPE_FLOAT:
+        sign = content[0];
         memcpy(&number_network_order, &content[1], 4);
-        uint32_t number_host_order = ntohl(number_network_order);
-        uint8_t exponent = content[5];
+        number_host_order = ntohl(number_network_order);
+        exponent = content[5];
 
-        float result = (float)number_host_order * std::pow(10, -exponent);
+        float_result = (float)number_host_order * std::pow(10, -exponent);
         if (sign == 1)
             ss << "-";
-        ss << std::setprecision(exponent) << result;
+        ss << std::setprecision(exponent) << float_result;
         break;
 
-    case 3:
-        bool last_char_non_zero = true;
+    case DATA_TYPE_STRING:
+        last_char_non_zero = true;
         for (size_t i = 0; i < MAX_CONTENT_LENGTH; i++) {
             if (content[i] == '\0') {
                 last_char_non_zero = false;

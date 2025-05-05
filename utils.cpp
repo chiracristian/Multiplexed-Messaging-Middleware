@@ -1,6 +1,7 @@
 #include "utils.hpp"
 
 #include <arpa/inet.h>
+#include <netinet/in.h>
 #include <netinet/tcp.h>
 
 #include <iostream>
@@ -93,6 +94,9 @@ std::string message::get_displayed_content()
 
     uint16_t number_times_100;
     uint8_t exponent;
+
+    int digit_count;
+    int number_copy;
     float float_result;
 
     bool last_char_non_zero;
@@ -113,8 +117,9 @@ std::string message::get_displayed_content()
     
     case DATA_TYPE_SHORT_REAL:
         memcpy(&number_times_100, &content[0], 2);
+        number_times_100 = ntohs(number_times_100);
 
-        ss << std::setprecision(2) << (float)number_times_100 / 100.f;
+        ss << std::setprecision(2) << std::fixed << (float)number_times_100 / 100.f;
         break;
     
     case DATA_TYPE_FLOAT:
@@ -123,10 +128,20 @@ std::string message::get_displayed_content()
         number_host_order = ntohl(number_network_order);
         exponent = content[5];
 
-        float_result = (float)number_host_order * std::pow(10, -exponent);
+        digit_count = 0;
+        number_copy = number_host_order;
+        do {
+            digit_count++;
+            number_copy /= 10;
+        } while (number_copy != 0);
+
+        float_result = (float)number_host_order;
+        for (int i = 0; i < exponent; i++) {
+            float_result /= 10.f;
+        }
         if (sign == 1)
             ss << "-";
-        ss << std::setprecision(exponent) << float_result;
+        ss << std::setprecision(digit_count) << float_result;
         break;
 
     case DATA_TYPE_STRING:

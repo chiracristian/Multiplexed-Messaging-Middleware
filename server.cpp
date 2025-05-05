@@ -1,5 +1,6 @@
 #include <cstring>
 #include <iostream>
+#include <queue>
 #include <vector>
 #include <unordered_map>
 
@@ -27,9 +28,134 @@ struct subscriber_data {
     std::vector<std::string> topics;
 };
 
+int connect_new_client(int listenfd,
+                       std::vector<pollfd>& poll_fds,
+                       std::unordered_map<std::string, subscriber_data>& subscribers,
+                       std::unordered_map<int, std::string>& connected_subscribers) {
+    char connecting_id[ID_LENGTH+1];
+    sockaddr_in cli_addr;
+    socklen_t cli_addr_len = sizeof(sockaddr_in);
+
+    // Accept connection
+    int new_socket = accept(listenfd, (sockaddr*)&cli_addr, &cli_addr_len);
+    if (new_socket < 0) {
+        std::cerr << errno << " Failed to accept connection\n";
+        return -1;
+    }
+    disable_nagle(new_socket);
+
+    // Receive the id of the client
+    int rc = recvall(new_socket, connecting_id, ID_LENGTH);
+    if (rc < 0) {
+        shutdown(new_socket, SHUT_RDWR);
+        close(new_socket);
+        return -1;
+    }
+    connecting_id[rc] = '\0';
+
+    // If another client with the same id is connected, kick it out
+    if (subscribers.count(connecting_id) > 0 && subscribers[connecting_id].connected) {
+        std::cout << "Client " << connecting_id << " already connected.\n";
+        shutdown(new_socket, SHUT_RDWR);
+        close(new_socket);
+        return -1;
+    }
+
+    // Mark the client as connected in the hash table
+    subscribers[connecting_id].connected = true;
+    subscribers[connecting_id].sockfd = new_socket;
+
+    // Add it into the map of sockets and connected client IDs
+    connected_subscribers[new_socket] = connecting_id;
+
+    // Add it for polling
+    pollfd new_pollfd;
+    new_pollfd.fd = new_socket;
+    new_pollfd.events = POLLIN;
+    poll_fds.push_back(new_pollfd);
+
+    // Print a message announcing the client was connected
+    std::cout << "New client " << connecting_id << " connected from ";
+    std::cout << inet_ntoa(cli_addr.sin_addr) << ':';
+    std::cout << htons(cli_addr.sin_port) << ".\n";
+
+    // Success
+    return 0;
+}
+
 bool matches_topic(const char* received_topic, const char* subscribed_topic)
 {
     return (strcmp(received_topic, subscribed_topic) == 0);
+}
+
+void process_subscription_requests(char *received_data,
+                           std::string& client_name,
+                           subscriber_data& subscriber,
+                           int clientfd)
+{
+    subcribe_request* request = (subcribe_request*)received_data;
+
+    if (request->operation == OPERATION_SUBSCRIBE) {
+        bool topic_already_added = false;
+
+        // Check if the client is not already subscribed to that topic
+        for (size_t i = 0; i < subscriber.topics.size(); i++) {
+            if (strcmp(request->topic, subscriber.topics[i].c_str()) == 0) {
+                topic_already_added = true;
+                break;
+            }
+        }
+
+        if (topic_already_added)
+            return;
+
+        // Add the topic to client's subscription list
+        subscriber.topics.push_back(request->topic);
+
+        // Send a byte to prepare the client for receiving an acknowledgement
+        // for subscribing
+        char header = HEADER_SUBSCRIBE_ACK;
+        int rc = sendall(subscriber.sockfd, &header, 1);
+        if (rc < 0)
+            std::cerr << "Failed to send ack header to " << client_name << '\n';
+
+        // Send back the acknowledgement of subscribing
+        request->operation = OPERATION_ACK_SUB;
+        rc = sendall(clientfd, request, sizeof(subcribe_request));
+        if (rc < 0) {
+            std::cerr << "Failed to send subscribe ACK\n";
+        }
+    } else if (request->operation == OPERATION_UNSUBSCRIBE) {
+        bool topic_existed = false;
+
+        // Check if the client is currently subscribed to what it wants to unsubscribe from 
+        for (size_t i = 0; i < subscriber.topics.size(); i++) {
+            if (strcmp(request->topic, subscriber.topics[i].c_str()) == 0) {
+                topic_existed = true;
+
+                // Remove the topic from client's subscription list
+                subscriber.topics.erase(subscriber.topics.begin() + i);
+                break;
+            }
+        }
+        if (!topic_existed)
+            return;
+
+        // Send a byte to prepare the client for receiving an acknowledgement
+        // for unsubscribing
+        char header = HEADER_SUBSCRIBE_ACK;
+        int rc = sendall(subscriber.sockfd, &header, 1);
+        if (rc < 0)
+            std::cerr << "Failed to send ack header to " << client_name << '\n';
+
+        // Send back the acknowledgement of unsubscribing
+        request->operation = OPERATION_ACK_UNSUB;
+        rc = sendall(clientfd, request, sizeof(subcribe_request));
+        if (rc < 0)
+            std::cerr << "Failed to send unsubscribe ACK\n";
+    } else {
+        std::cerr << "Invalid request from a TCP client\n";
+    }
 }
 
 int main(int argc, char** argv)
@@ -94,10 +220,11 @@ int main(int argc, char** argv)
     std::unordered_map<std::string, subscriber_data> subscribers;
     std::unordered_map<int, std::string> connected_subscribers;
 
+    std::queue<std::pair<std::string, message_with_header>> waiting_messages;
+
     char input_command[MAX_STDIN_LEN];
-    char connecting_id[ID_LENGTH+1];
     char received_datagram[sizeof(message)];
-    char received_from_TCP_clients[sizeof(subcribe_request)];
+    char received_from_TCP[sizeof(subcribe_request)];
     while (true) {
         rc = poll(poll_fds.data(), poll_fds.size(), -1);
         DIE(rc < 0, "Failed to poll");
@@ -119,83 +246,35 @@ int main(int argc, char** argv)
                 continue;
             }
             message* received_message = (message*)received_datagram;
+            std::pair<std::string, message_with_header> topicMessagePair;
+            topicMessagePair.first = received_message->topic;
 
-            char received_topic[MAX_TOPIC_LENGTH+1];
-            strncpy(received_topic, received_message->topic, MAX_TOPIC_LENGTH);
+            message_with_header& response = topicMessagePair.second;
+            response.source_ip_address = client_addr.sin_addr.s_addr;
+            response.source_port = client_addr.sin_port;
+            memcpy(&response.msg, received_message, sizeof(message));
 
-            for (auto& subscriber_pairs : subscribers) {
-                subscriber_data& subscriber = subscriber_pairs.second;
-                if (!subscriber.connected)
-                    continue;
-
-                for (size_t j = 0; j < subscriber.topics.size(); j++) {
-                    if (matches_topic(received_topic, subscriber.topics[j].c_str())) {
-                        message_with_header response;
-                        response.source_ip_address = client_addr.sin_addr.s_addr;
-                        response.source_port = client_addr.sin_port;
-                        memcpy(&response.msg, received_message, sizeof(message));
-
-                        char header = HEADER_MESSAGE;
-                        rc = sendall(subscriber.sockfd, &header, 1);
-                        if (rc < 0)
-                            std::cerr << "Failed to send message header to " << subscriber_pairs.first << '\n';
-
-                        rc = sendall(subscriber.sockfd, &response, sizeof(message_with_header));
-                        if (rc < 0)
-                            std::cerr << "Failed to send message to " << subscriber_pairs.first << '\n';
-                    }
-                }
-            }
+            waiting_messages.push(topicMessagePair);
         }
 
         // Check if a client wants to connect
         if (poll_fds[LISTNER_POLLFD_IDX].revents & POLLIN) {
-            sockaddr_in cli_addr;
-            socklen_t cli_addr_len = sizeof(sockaddr_in);
-
-            int new_socket = accept(listenfd, (sockaddr*)&cli_addr, &cli_addr_len);
-            if (new_socket < 0) {
-                std::cerr << errno << " Failed to accept connection\n";
+            rc = connect_new_client(listenfd, poll_fds, subscribers, connected_subscribers);
+            if (rc < 0)
                 continue;
-            }
-            disable_nagle(new_socket);
-
-            rc = recvall(new_socket, connecting_id, ID_LENGTH);
-            if (rc < 0) {
-                close(new_socket);
-                continue;
-            }
-            connecting_id[rc] = '\0';
-
-            if (subscribers.count(connecting_id) > 0 && subscribers[connecting_id].connected) {
-                std::cout << "Client " << connecting_id << " already connected\n";
-                close(new_socket);
-                continue;
-            }
-
-            subscribers[connecting_id].connected = true;
-            subscribers[connecting_id].sockfd = new_socket;
-            connected_subscribers[new_socket] = connecting_id;
-        
-            pollfd new_pollfd;
-            new_pollfd.fd = new_socket;
-            new_pollfd.events = POLLIN;
-            poll_fds.push_back(new_pollfd);
-
-            std::cout << "New client " << connecting_id << " connected from ";
-            std::cout << inet_ntoa(cli_addr.sin_addr) << ':';
-            std::cout << htons(cli_addr.sin_port) << '\n';
         }
 
+        // Iterate through TCP clients
         for (size_t i = SUBS_START_IDX; i < poll_fds.size(); i++) {
-            if (poll_fds[i].revents & POLLIN) {
-                int clientfd = poll_fds[i].fd;
-                std::string& client_name = connected_subscribers[clientfd];
-                subscriber_data& subscriber = subscribers[client_name];
+            int clientfd = poll_fds[i].fd;
+            std::string& client_name = connected_subscribers[clientfd];
+            subscriber_data& subscriber = subscribers[client_name];
 
-                rc = recvall(clientfd, received_from_TCP_clients, sizeof(subcribe_request));
+            // Check if the TCP client disconnected or sent something
+            if (poll_fds[i].revents & POLLIN) {
+                rc = recvall(clientfd, received_from_TCP, sizeof(subcribe_request));
                 if (rc <= 0) {
-                    std::cout << "Client " << client_name << " disconnected\n";
+                    std::cout << "Client " << client_name << " disconnected.\n";
                     poll_fds.erase(poll_fds.begin() + i);
                     connected_subscribers.erase(clientfd);
 
@@ -206,55 +285,34 @@ int main(int argc, char** argv)
 
                     i--;
                 } else {
-                    subcribe_request* request = (subcribe_request*)received_from_TCP_clients;
-                    if (request->operation == OPERATION_SUBSCRIBE) {
-                        bool topic_already_added = false;
-                        for (size_t i = 0; i < subscriber.topics.size(); i++) {
-                            if (strcmp(request->topic, subscriber.topics[i].c_str()) == 0) {
-                                topic_already_added = true;
-                                break;
-                            }
-                        }
-                        if (!topic_already_added) {
-                            subscriber.topics.push_back(request->topic);
+                    process_subscription_requests(received_from_TCP, client_name, subscriber, clientfd);
+                }
+            }
+        }
 
-                            char header = HEADER_SUBSCRIBE_ACK;
-                            rc = sendall(subscriber.sockfd, &header, 1);
-                            if (rc < 0)
-                                std::cerr << "Failed to send ack header to " << client_name << '\n';
+        // Send the next waiting message in the queue
+        if (!waiting_messages.empty()) {
+            auto& topicMessagePair = waiting_messages.front();
 
-                            request->operation = OPERATION_ACK_SUB;
-                            rc = sendall(clientfd, request, sizeof(subcribe_request));
-                            if (rc < 0) {
-                                std::cerr << "Failed to send subscribe ACK\n";
-                            }
-                        }
-                    } else if (request->operation == OPERATION_UNSUBSCRIBE) {
-                        bool topic_existed = false;
-                        for (size_t i = 0; i < subscriber.topics.size(); i++) {
-                            if (strcmp(request->topic, subscriber.topics[i].c_str()) == 0) {
-                                topic_existed = true;
-                                subscriber.topics.erase(subscriber.topics.begin() + i);
-                                break;
-                            }
-                        }
-                        if (topic_existed) {
-                            char header = HEADER_SUBSCRIBE_ACK;
-                            rc = sendall(subscriber.sockfd, &header, 1);
-                            if (rc < 0)
-                                std::cerr << "Failed to send ack header to " << client_name << '\n';
+            for (auto& subscriber_pairs : subscribers) {
+                subscriber_data& subscriber = subscriber_pairs.second;
+                if (!subscriber.connected)
+                    continue;
 
-                            request->operation = OPERATION_ACK_UNSUB;
-                            rc = sendall(poll_fds[i].fd, request, sizeof(subcribe_request));
-                            if (rc < 0) {
-                                std::cerr << "Failed to send unsubscribe ACK\n";
-                            }
-                        }
-                    } else {
-                        std::cerr << "Invalid request from a TCP client\n";
+                for (size_t j = 0; j < subscriber.topics.size(); j++) {
+                    if (matches_topic(topicMessagePair.first.c_str(), subscriber.topics[j].c_str())) {
+                        char header = HEADER_MESSAGE;
+                        rc = sendall(subscriber.sockfd, &header, 1);
+                        if (rc < 0)
+                            std::cerr << "Failed to send message header to " << subscriber_pairs.first << '\n';
+
+                        rc = sendall(subscriber.sockfd, &topicMessagePair.second, sizeof(message_with_header));
+                        if (rc < 0)
+                            std::cerr << "Failed to send message to " << subscriber_pairs.first << '\n';
                     }
                 }
             }
+            waiting_messages.pop();
         }
     }
 

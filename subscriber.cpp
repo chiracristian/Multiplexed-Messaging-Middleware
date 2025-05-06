@@ -26,7 +26,7 @@ int process_input_comand(char* input_command, int sockfd)
     // If it's "exit", return so
     if (strcmp(current_token, "exit") == 0)
         return EXIT_COMMAND_ENTERED;
-    
+
     // Else it must be "subscribe"/"unsubscribe"
     uint8_t operation;
     if (strcmp(current_token, "subscribe") == 0)
@@ -99,7 +99,7 @@ int receive_subscribe_ack(int sockfd, char* recv_data)
         std::cout << "Unsubscribed from topic " << request->topic << '\n';
     else
         std::cerr << "Invalid acknoledgement";
-    
+
     // Success
     return 0;
 }
@@ -185,7 +185,7 @@ int main(int argc, char **argv) {
             } else {
                 uint8_t header = recv_data[0];
 
-                // Depending on the byte, we either got a message or 
+                // Depending on the byte, we either got a message or
                 // an (un)subscribe acknowledgement
                 if (header == HEADER_MESSAGE)
                     rc = receive_message(sockfd, recv_data);

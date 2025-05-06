@@ -113,7 +113,7 @@ void process_sub_requests(char *received_data,
             std::cerr << "Failed to send subscribe ACK\n";
         }
     } else if (request->operation == OPERATION_UNSUBSCRIBE) {
-        // Check if the client is currently subscribed to the given topic 
+        // Check if the client is currently subscribed to the given topic
         if (subscriber.topics.count(request->topic) == 0)
             return;
 
@@ -163,7 +163,7 @@ bool matches_topic(std::string searched_topic, std::string subscribed_topics)
             // If the last component was *, the path matches
             if (current_sub_token == NULL)
                 return true;
-            
+
             // Iterate through tokens of the searched topic until we find
             // one equal to the current component of the subcribed path
             while (current_search_token != NULL) {
@@ -225,7 +225,7 @@ void send_msg_to_all_subs(std::pair<std::string, message_with_header>& topic_mes
                     std::cerr << "Failed to send message to ";
                     std::cerr << sub_id_data_pair.second << '\n';
                 }
-                
+
                 break;
             }
         }
@@ -246,7 +246,7 @@ int main(int argc, char** argv)
         "The port must be a number between 1024 and 65535");
     const uint16_t port = read_port;
 
-    // Open the UDP socket 
+    // Open the UDP socket
     const int udpfd = socket(AF_INET, SOCK_DGRAM, 0);
     DIE(udpfd < 0, "Failed to open UDP socket");
 
@@ -316,6 +316,9 @@ int main(int argc, char** argv)
             sockaddr_in client_addr;
             socklen_t client_addr_size = sizeof(sockaddr_in);
 
+            // Clean up the receiving buffer
+            memset(received_datagram, 0, sizeof(received_datagram));
+
             // Receive the message
             int rc = recvfrom(udpfd, received_datagram, sizeof(received_datagram),
                             0, (sockaddr*)&client_addr, &client_addr_size);
@@ -323,7 +326,7 @@ int main(int argc, char** argv)
                 std::cerr << "Failed to receive UDP datagram\n";
                 continue;;
             }
-            received_datagram[sizeof(received_datagram)] = '\0';
+
             message* received_message = (message*)received_datagram;
 
             // Make a pair of the topic and of the message that will include headers
@@ -400,7 +403,7 @@ int main(int argc, char** argv)
         shutdown(poll_fds[i].fd, SHUT_RDWR);
         close(poll_fds[i].fd);
     }
-    
+
     // Finally, close the UDP socket
     close(udpfd);
 

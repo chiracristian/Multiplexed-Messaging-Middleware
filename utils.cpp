@@ -28,7 +28,7 @@ ssize_t sendall(int tcp_socket, const void* data, size_t size)
         rc = send(tcp_socket, (const char*)data + bytes_sent, bytes_remaining, 0);
         if (rc < 0)
             return -1;
-        
+
         bytes_sent += rc;
         bytes_remaining -= rc;
     }
@@ -47,7 +47,7 @@ ssize_t recvall(int tcp_socket, void* data, size_t size)
         // Check if the client disconnected gracefully
         if (rc == 0)
             return 0;
-        
+
         // Check if the client disconnected abruptly
         if (rc < 0) {
             // Retry if interrupted by a signal
@@ -55,7 +55,7 @@ ssize_t recvall(int tcp_socket, void* data, size_t size)
                 continue;
             return -1;
         }
-        
+
         bytes_recv += rc;
         bytes_remaining -= rc;
     }
@@ -81,7 +81,7 @@ std::string message::get_data_type()
     case DATA_TYPE_FLOAT:
         return "FLOAT";
     case DATA_TYPE_STRING:
-        return "STRING";  
+        return "STRING";
     }
     return "INVALID";
 }
@@ -104,7 +104,7 @@ std::string message::get_displayed_content()
 
         break;
     }
-    
+
     case DATA_TYPE_SHORT_REAL: {
         uint16_t number_times_100;
         memcpy(&number_times_100, &content[0], 2);

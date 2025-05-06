@@ -17,11 +17,6 @@ void disable_nagle(int tcp_socket);
 #define OPERATION_REQUIRE_CONNECTION 0
 #define OPERATION_IDENTICAL_ID_DETECTED 1
 
-// struct connection_request {
-//     uint8_t operation;
-//     char id[ID_LENGTH];
-// };
-
 #define MAX_TOPIC_LENGTH 50
 #define MAX_CONTENT_LENGTH 1500
 
@@ -37,13 +32,13 @@ struct message {
 
     std::string get_data_type();
     std::string get_displayed_content();
-};
+} __attribute__((packed));
 
 struct message_with_header {
     uint32_t source_ip_address;
     uint16_t source_port;
     message msg;
-};
+} __attribute__((packed));
 
 #define OPERATION_SUBSCRIBE 0
 #define OPERATION_UNSUBSCRIBE 1
@@ -53,6 +48,6 @@ struct message_with_header {
 struct subcribe_request {
     uint8_t operation;
     char topic[MAX_TOPIC_LENGTH+1];
-};
+} __attribute__((packed));
 
 #endif  // UTILS_H_INCLUDED

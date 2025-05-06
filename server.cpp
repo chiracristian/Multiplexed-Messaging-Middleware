@@ -164,8 +164,8 @@ bool matches_topic(std::string searched_topic, std::string subscribed_topics)
             if (current_sub_token == NULL)
                 return true;
             
-            // Iterate through parts of the searched topic until we find
-            // a part equal to the current component of the subcribed path
+            // Iterate through tokens of the searched topic until we find
+            // one equal to the current component of the subcribed path
             while (current_search_token != NULL) {
                 if (strcmp(current_search_token, current_sub_token) == 0)
                     break;
@@ -189,7 +189,7 @@ bool matches_topic(std::string searched_topic, std::string subscribed_topics)
         }
     }
 
-    // If the subscription matches, the whole searched topic
+    // If the subscription matches, the whole searched topic tokens
     // should have been consumed
     if (current_search_token != NULL)
         return false;
@@ -323,6 +323,7 @@ int main(int argc, char** argv)
                 std::cerr << "Failed to receive UDP datagram\n";
                 continue;;
             }
+            received_datagram[sizeof(received_datagram)] = '\0';
             message* received_message = (message*)received_datagram;
 
             // Make a pair of the topic and of the message that will include headers

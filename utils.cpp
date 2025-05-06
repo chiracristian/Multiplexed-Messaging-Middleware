@@ -133,24 +133,10 @@ std::string message::get_displayed_content()
         ss << std::setw(exponent) << std::setfill('0') << mantissa % power_of_10;
         break;
     }
-    case DATA_TYPE_STRING: {
-        bool last_char_non_zero = true;
-        for (size_t i = 0; i < MAX_CONTENT_LENGTH; i++) {
-            if (content[i] == '\0') {
-                last_char_non_zero = false;
-                break;
-            }
-        }
-        if (last_char_non_zero) {
-            char temp = content[MAX_CONTENT_LENGTH-1];
-            content[MAX_CONTENT_LENGTH-1] = '\0';
-            ss << content << temp;
-            content[MAX_CONTENT_LENGTH-1] = temp;
-        } else {
-            ss << content;
-        }
+    case DATA_TYPE_STRING:
+        ss << content;
         break;
-    }
+
     default:
         ss << "INVALID";
     }

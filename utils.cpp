@@ -88,64 +88,53 @@ std::string message::get_data_type()
 
 std::string message::get_displayed_content()
 {
-    uint8_t sign;
-    uint32_t number_network_order;
-    uint32_t number_host_order;
-
-    uint16_t number_times_100;
-    uint8_t exponent;
-
-    int digit_count;
-    int number_copy;
-    float float_result;
-
-    bool last_char_non_zero;
-
     std::stringstream ss;
 
     switch (data_type) {
-    case DATA_TYPE_INT:
-        sign = content[0];
-        memcpy(&number_network_order, &content[1], 4);
-        number_host_order = ntohl(number_network_order);
+    case DATA_TYPE_INT: {
+        uint8_t sign = content[0];
 
-        if (sign == 1)
-            ss << "-";
-        ss << number_host_order;
+        uint32_t number;
+        memcpy(&number, &content[1], 4);
+        number = ntohl(number);
 
-        return ss.str();
+        if (sign == 1 && number != 0)
+            ss << '-';
+        ss << number;
+
+        break;
+    }
     
-    case DATA_TYPE_SHORT_REAL:
+    case DATA_TYPE_SHORT_REAL: {
+        uint16_t number_times_100;
         memcpy(&number_times_100, &content[0], 2);
         number_times_100 = ntohs(number_times_100);
 
-        ss << std::setprecision(2) << std::fixed << (float)number_times_100 / 100.f;
+        ss << number_times_100 / 100 << '.';
+        ss << std::setw(2) << std::setfill('0') << number_times_100 % 100;
         break;
-    
-    case DATA_TYPE_FLOAT:
-        sign = content[0];
-        memcpy(&number_network_order, &content[1], 4);
-        number_host_order = ntohl(number_network_order);
-        exponent = content[5];
+    }
+    case DATA_TYPE_FLOAT: {
+        uint8_t sign = content[0];
 
-        digit_count = 0;
-        number_copy = number_host_order;
-        do {
-            digit_count++;
-            number_copy /= 10;
-        } while (number_copy != 0);
+        uint32_t mantissa;
+        memcpy(&mantissa, &content[1], 4);
+        mantissa = ntohl(mantissa);
 
-        float_result = (float)number_host_order;
-        for (int i = 0; i < exponent; i++) {
-            float_result /= 10.f;
-        }
+        uint8_t exponent = content[5];
+
+        uint32_t power_of_10 = 1;
+        for (uint32_t i = 0; i < exponent; i++)
+            power_of_10 *= 10;
+
         if (sign == 1)
-            ss << "-";
-        ss << std::setprecision(digit_count) << float_result;
+            ss << '-';
+        ss << mantissa / power_of_10 << '.';
+        ss << std::setw(exponent) << std::setfill('0') << mantissa % power_of_10;
         break;
-
-    case DATA_TYPE_STRING:
-        last_char_non_zero = true;
+    }
+    case DATA_TYPE_STRING: {
+        bool last_char_non_zero = true;
         for (size_t i = 0; i < MAX_CONTENT_LENGTH; i++) {
             if (content[i] == '\0') {
                 last_char_non_zero = false;
@@ -161,6 +150,7 @@ std::string message::get_displayed_content()
             ss << content;
         }
         break;
+    }
     default:
         ss << "INVALID";
     }

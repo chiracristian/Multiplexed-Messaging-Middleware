@@ -20,10 +20,14 @@
 
 int process_input_comand(char* input_command, int sockfd)
 {
+    // Get the first word of the command
     char* current_token = strtok(input_command, " \n");
+
+    // If it's "exit", return so
     if (strcmp(current_token, "exit") == 0)
         return EXIT_COMMAND_ENTERED;
     
+    // Else it must be "subscribe"/"unsubscribe"
     uint8_t operation;
     if (strcmp(current_token, "subscribe") == 0)
         operation = OPERATION_SUBSCRIBE;
@@ -32,15 +36,18 @@ int process_input_comand(char* input_command, int sockfd)
     else
         return INVALID_COMMAND_ENTERED;
 
+    // Get the second word of the command (the topic)
     current_token = strtok(NULL, " \n");
     if (current_token == NULL)
         return INVALID_COMMAND_ENTERED;
 
+    // Prepare the (un)subscribe request
     subcribe_request request;
     request.operation = operation;
     strncpy(request.topic, current_token, MAX_TOPIC_LENGTH);
     request.topic[MAX_TOPIC_LENGTH] = '\0';
 
+    // Send the request to the server
     int rc = sendall(sockfd, (const char*)&request, sizeof(subcribe_request));
     if (rc < 0)
         std::cerr << "Failed to send request\n";
@@ -52,6 +59,7 @@ int receive_message(int sockfd, char* recv_data)
 {
     message_with_header* pkt = (message_with_header*)(recv_data + 1);
 
+    // Receive the message
     int rc = recvall(sockfd, pkt, sizeof(message_with_header));
     if (rc <= 0) {
         std::cerr << "Failed to receive message\n";
@@ -77,12 +85,14 @@ int receive_subscribe_ack(int sockfd, char* recv_data)
 {
     subcribe_request* request = (subcribe_request*)(recv_data + 1);
 
+    // Receive the acknowledgement
     int rc = recvall(sockfd, request, sizeof(subcribe_request));
     if (rc <= 0) {
         std::cerr << "Failed to receive subscription acknoledgement\n";
         return -1;
     }
 
+    // Display a corresponding message
     if (request->operation == OPERATION_ACK_SUB)
         std::cout << "Subscribed to topic " << request->topic << '\n';
     else if (request->operation == OPERATION_ACK_UNSUB)
@@ -152,6 +162,7 @@ int main(int argc, char **argv) {
 
     char input_command[MAX_STDIN_LEN];
     char recv_data[1+sizeof(message)];
+
     while (true) {
         rc = poll(poll_fds.data(), poll_fds.size(), -1);
         DIE(rc < 0, "Failed to poll");
@@ -166,12 +177,16 @@ int main(int argc, char **argv) {
 
         // Check if we received a TCP packet
         if (poll_fds[SOCKFD_IDX].revents & POLLIN) {
+            // Receive at most one byte, as header
             rc = recvall(sockfd, recv_data, 1);
             if (rc <= 0) {
                 // Exit if server disconnected
                 break;
             } else {
                 uint8_t header = recv_data[0];
+
+                // Depending on the byte, we either got a message or 
+                // an (un)subscribe acknowledgement
                 if (header == HEADER_MESSAGE)
                     rc = receive_message(sockfd, recv_data);
                 else if (header == HEADER_SUBSCRIBE_ACK)
@@ -186,6 +201,7 @@ int main(int argc, char **argv) {
         }
     }
 
+    // Close the TCP socket at the end
     shutdown(sockfd, SHUT_RDWR);
     close(sockfd);
 

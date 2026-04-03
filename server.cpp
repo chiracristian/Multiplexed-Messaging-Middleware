@@ -79,7 +79,7 @@ int connect_new_client(int listenfd,
     // Print a message announcing the client was connected
     std::cout << "New client " << connecting_id << " connected from ";
     std::cout << inet_ntoa(cli_addr.sin_addr) << ':';
-    std::cout << htons(cli_addr.sin_port) << ".\n";
+    std::cout << ntohs(cli_addr.sin_port) << ".\n";
 
     // Success
     return 0;

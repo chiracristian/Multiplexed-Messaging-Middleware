@@ -71,8 +71,11 @@ int receive_message(int sockfd, char* recv_buf)
     source_ip.s_addr = pkt->source_ip_address;
     std::cout << inet_ntoa(source_ip) << ':' << ntohs(pkt->source_port);
 
+    // Handle the case the topic has exactly MAX_TOPIC_LENGTH characters
+    std::string topic(pkt->msg.topic, strnlen(pkt->msg.topic, MAX_TOPIC_LENGTH));
+
     // Print topic and type
-    std::cout << " - " << pkt->msg.topic << " - " << pkt->msg.get_data_type();
+    std::cout << " - " << topic << " - " << pkt->msg.get_data_type();
 
     // Print content
     std::cout << " - " << pkt->msg.get_displayed_content() << '\n';

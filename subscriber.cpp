@@ -55,16 +55,16 @@ int process_input_comand(char* input_command, int sockfd)
     return SUBSCRIBE_COMMAND_ENTERED;
 }
 
-int receive_message(int sockfd, char* recv_data)
+int receive_message(int sockfd, char* recv_buf)
 {
-    message_with_header* pkt = (message_with_header*)(recv_data + 1);
-
     // Receive the message
-    int rc = recvall(sockfd, pkt, sizeof(message_with_header));
+    int rc = recvall(sockfd, recv_buf, sizeof(message_with_header));
     if (rc <= 0) {
         std::cerr << "Failed to receive message\n";
         return -1;
     }
+
+    message_with_header* pkt = (message_with_header*)recv_buf;
 
     // Print IP and port of sender
     in_addr source_ip;
@@ -81,16 +81,16 @@ int receive_message(int sockfd, char* recv_data)
     return 0;
 }
 
-int receive_subscribe_ack(int sockfd, char* recv_data)
+int receive_subscribe_ack(int sockfd, char* recv_buf)
 {
-    subcribe_request* request = (subcribe_request*)(recv_data + 1);
-
     // Receive the acknowledgement
-    int rc = recvall(sockfd, request, sizeof(subcribe_request));
+    int rc = recvall(sockfd, recv_buf, sizeof(subcribe_request));
     if (rc <= 0) {
         std::cerr << "Failed to receive subscription acknoledgement\n";
         return -1;
     }
+
+    subcribe_request* request = (subcribe_request*)recv_buf;
 
     // Display a corresponding message
     if (request->operation == OPERATION_ACK_SUB)
@@ -161,7 +161,8 @@ int main(int argc, char **argv) {
     poll_fds.push_back(socket_pollfd);
 
     char input_command[MAX_STDIN_LEN];
-    char recv_data[1+sizeof(message)];
+    uint8_t recv_header;
+    char recv_buf[sizeof(message_with_header)];
 
     while (true) {
         rc = poll(poll_fds.data(), poll_fds.size(), -1);
@@ -178,19 +179,17 @@ int main(int argc, char **argv) {
         // Check if we received a TCP packet
         if (poll_fds[SOCKFD_IDX].revents & POLLIN) {
             // Receive at most one byte, as header
-            rc = recvall(sockfd, recv_data, 1);
+            rc = recvall(sockfd, &recv_header, sizeof(uint8_t));
             if (rc <= 0) {
                 // Exit if server disconnected
                 break;
             } else {
-                uint8_t header = recv_data[0];
-
                 // Depending on the byte, we either got a message or
                 // an (un)subscribe acknowledgement
-                if (header == HEADER_MESSAGE)
-                    rc = receive_message(sockfd, recv_data);
-                else if (header == HEADER_SUBSCRIBE_ACK)
-                    rc = receive_subscribe_ack(sockfd, recv_data);
+                if (recv_header == HEADER_MESSAGE)
+                    rc = receive_message(sockfd, recv_buf);
+                else if (recv_header == HEADER_SUBSCRIBE_ACK)
+                    rc = receive_subscribe_ack(sockfd, recv_buf);
                 else
                     std::cerr << "Invalid header of packet detected\n";
 

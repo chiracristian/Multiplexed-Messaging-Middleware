@@ -383,8 +383,8 @@ int main(int argc, char** argv)
             }
         }
 
-        // Send the next waiting message in the queue
-        if (!waiting_messages.empty()) {
+        // Send the next waiting messages in the queue
+        while (!waiting_messages.empty()) {
             auto& topic_message_pair = waiting_messages.front();
 
             send_msg_to_all_subs(topic_message_pair, subscribers,

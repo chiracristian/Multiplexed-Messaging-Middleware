@@ -85,12 +85,10 @@ int connect_new_client(int listenfd,
     return 0;
 }
 
-void process_sub_requests(char *received_data,
+void process_sub_requests(subcribe_request* request,
                           std::string& client_name,
                           subscriber_data& subscriber)
 {
-    subcribe_request* request = (subcribe_request*)received_data;
-
     if (request->operation == OPERATION_SUBSCRIBE) {
         // Check if the client is already subscribed to that topic
         if (subscriber.topics.count(request->topic) > 0)
@@ -297,47 +295,45 @@ int main(int argc, char** argv)
     // A queue of waiting messages, with their topic as key
     std::queue<std::pair<std::string, message_with_header>> waiting_messages;
 
-    char input_command[MAX_STDIN_LEN];
-    char received_datagram[sizeof(message)];
-    char received_from_TCP[sizeof(subcribe_request)];
-
     while (true) {
         rc = poll(poll_fds.data(), poll_fds.size(), -1);
         DIE(rc < 0, "Failed to poll");
 
         // Check if we got input from stdin
-        if (poll_fds[STDIN_POLLFD_IDX].revents & POLLIN)
+        if (poll_fds[STDIN_POLLFD_IDX].revents & POLLIN) {
+            char input_command[MAX_STDIN_LEN];
+
             if (fgets(input_command, MAX_STDIN_LEN, stdin) != NULL)
                 if (strcmp(input_command, "exit\n") == 0)
                     break;
+        }
 
         // Check if we got an UDP datagram
         if (poll_fds[UDP_POLLFD_IDX].revents & POLLIN) {
             sockaddr_in client_addr;
             socklen_t client_addr_size = sizeof(sockaddr_in);
 
-            // Clean up the receiving buffer
-            memset(received_datagram, 0, sizeof(received_datagram));
-
             // Receive the message
-            int rc = recvfrom(udpfd, received_datagram, sizeof(received_datagram),
+            message received_message;
+            memset(&received_message, 0, sizeof(message));
+
+            int rc = recvfrom(udpfd, &received_message, sizeof(message),
                             0, (sockaddr*)&client_addr, &client_addr_size);
             if (rc < 0) {
                 std::cerr << "Failed to receive UDP datagram\n";
                 continue;;
             }
 
-            message* received_message = (message*)received_datagram;
-
             // Make a pair of the topic and of the message that will include headers
             std::pair<std::string, message_with_header> topic_message_pair;
-            topic_message_pair.first = std::string(received_message->topic, strnlen(received_message->topic, MAX_TOPIC_LENGTH));
+            topic_message_pair.first = std::string(received_message.topic, 
+                strnlen(received_message.topic, MAX_TOPIC_LENGTH));
 
             // Create the packet that will be sent, containing the message and its origin
             message_with_header& response = topic_message_pair.second;
             response.source_ip_address = client_addr.sin_addr.s_addr;
             response.source_port = client_addr.sin_port;
-            memcpy(&response.msg, received_message, sizeof(message));
+            memcpy(&response.msg, &received_message, sizeof(message));
 
             // Enqueue the topic-message pair
             waiting_messages.push(topic_message_pair);
@@ -359,7 +355,9 @@ int main(int argc, char** argv)
 
             // Check if the TCP client disconnected or sent something
             if (poll_fds[i].revents & POLLIN) {
-                rc = recvall(clientfd, received_from_TCP, sizeof(subcribe_request));
+                subcribe_request sub_request;
+
+                rc = recvall(clientfd, &sub_request, sizeof(subcribe_request));
                 if (rc <= 0) {
                     // Remove the client's fd from the poll and connected clients table
                     poll_fds.erase(poll_fds.begin() + i);
@@ -378,7 +376,7 @@ int main(int argc, char** argv)
 
                     i--;
                 } else {
-                    process_sub_requests(received_from_TCP, client_name, subscriber);
+                    process_sub_requests(&sub_request, client_name, subscriber);
                 }
             }
         }

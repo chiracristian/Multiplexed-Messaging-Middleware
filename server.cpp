@@ -180,7 +180,7 @@ bool matches_topic(std::string searched_topic, std::string subscribed_topics)
             // Continue with the next tokens
             current_sub_token = strtok_r(NULL, delim, &sub_save_ptr);
             current_search_token = strtok_r(NULL, delim, &topic_save_ptr);
-        } else if (strcmp(current_sub_token, current_search_token) != 0) {
+        } else if (current_search_token == NULL || strcmp(current_sub_token, current_search_token) != 0) {
             return false;
         } else {
             // If the tokens match, continue with the next ones
@@ -331,7 +331,7 @@ int main(int argc, char** argv)
 
             // Make a pair of the topic and of the message that will include headers
             std::pair<std::string, message_with_header> topic_message_pair;
-            topic_message_pair.first = received_message->topic;
+            topic_message_pair.first = std::string(received_message->topic, strnlen(received_message->topic, MAX_TOPIC_LENGTH));
 
             // Create the packet that will be sent, containing the message and its origin
             message_with_header& response = topic_message_pair.second;

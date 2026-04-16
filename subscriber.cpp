@@ -112,7 +112,7 @@ int main(int argc, char **argv) {
     setvbuf(stdout, NULL, _IONBF, BUFSIZ);
 
     // Check if 3 parameters were passed
-    DIE(argc != 4, "Usage: ./subcriber <ID_CLIENT> <IP_SERVER> <PORT_SERVER>");
+    DIE(argc != 4, "Usage: ./subscriber <CLIENT_ID> <SERVER_IP> <SERVER_PORT>");
 
     // Read the client ID
     char client_id[ID_LENGTH+1];

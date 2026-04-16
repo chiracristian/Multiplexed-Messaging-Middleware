@@ -1,104 +1,63 @@
-## Cristian-Ioan-George CHIRA, grupa 322CD - descriere rezolvare tema 2 PCom
+# Multiplexed Messaging Middleware
 
-Pentru a implementa aceasta tema am ales sa folosesc limbajul C++, deoarece ofera
-implementari pentru structuri de date (am folosit `std::vector` pentru vectori
-alocati dinamic, `std::unordered_map` si `std::unordered_set` care implementeaza
-tabele de dispersie).
+A high-performance, low-latency message broker designed to bridge UDP telemetry data with TCP subscribers. This middleware implements a custom application-level protocol to handle high-throughput data streams, featuring a hierarchical topic-based subscription model with advanced wildcard support.
 
-Fisierele continute sunt `server.cpp`, `subscriber.cpp`, `utils.cpp`, `utils.hpp`
-si `Makefile` pentru compilare.
+## Key Features
 
-## Functionarea serverului
+* **Real-time Protocol Bridging**: Efficiently routes messages from UDP data sources to multiple concurrent TCP subscribers.
+* **Hierarchical Topic Matching**: Utilizes a custom **Trie-based data structure** for efficient $O(L)$ topic lookups, where $L$ is the depth of the topic hierarchy.
+* **Advanced Wildcard Support**: Implements MQTT-style wildcards for flexible data filtering:
+    * `+` : Matches exactly one level in the hierarchy.
+    * `*` : Matches zero or more levels (multi-level matching).
+* **Low-Latency Engineering**: Optimizes delivery by disabling **Nagle’s Algorithm** (TCP_NODELAY) to ensure immediate transmission of time-critical packets.
+* **Connection Persistence**: Maintains subscriber states and topic interests server-side, allowing clients to disconnect and reconnect without losing their subscription configurations.
+* **I/O Multiplexing**: Leverages the `poll()` system call to manage multiple TCP connections and UDP ingress within a single-threaded, non-blocking execution model.
 
-Serverul incepe prin verificarea parametrului dat. Acesta trebuie sa fie un numar
-care reprezinta un port neprivilegiat (intre 1024 si 65535). Dupa care, deschide
-un socket UDP pentru a putea primi datagrame cu mesaje de la serverele UDP.
-Apoi deschide un socket TCP pentru a putea prelua cererile de conectare de la
-clientii TCP. Dupa care, este pregatit polling-ul, adaugand, pentru inceput,
-la acesta `stdin` (pentru a putea introduce comanda `exit`), socket-ul UDP si
-listner-ul TCP.
+## Technical Stack
 
-Dupa aceasta este declarata o tabela de dispersie avand ca si chei nume si ca
-valori date despre abonati, in structura `subscriber_data`, care tine minte
-daca este clientul conectat in momentul respectiv, pe ce socket este conectat
-si o alta tabela de dispersie ce cuprinde topic-urile la care este abonat. Apoi
-avem o alta tabela de dispersie ce are ca si chei file-descriptorii pentru
-socket-urile subscriberilor conectati si ca valori numele lor (pentru a putea
-gasi rapid in cealalta tabela de dispersie daca exista alt client cu acelasi
-ID). Apoi creez o coada in care voi pastra perechi intre topicuri si mesajele primite,
-pentru a putea fi expediate clientilor TCP.
+* **Language**: C++17
+* **Networking**: POSIX Sockets (TCP/UDP)
+* **Data Structures**: Custom Topic Trie, `std::unordered_map`, and `std::unordered_set` for $O(1)$ client and session management.
+* **Concurrency**: Event-driven I/O multiplexing.
 
-Apoi, la fiecare iteratie server-ul face poll intre stdin si toate socket-urile
-deschise. Intai verifica daca s-a introdus comanda `exit`, dupa care incearca sa
-primeasca un pachet UDP. 
+## Architecture
 
-Pentru a primi un pachet UDP se umple un buffer cu 0-uri si se primeste pachetul in acesta,
-cu o dimensiune de pana la 1551 octeti. Apoi se construieste alta structura,
-`message_with_header` in care pun adresa IP a sender-ului si portul corespunzator,
-urmat de mesajul asa cum a fost primit in sine.
+The middleware acts as a centralized **Pub/Sub Broker**:
+1.  **UDP Ingress**: Receives raw datagrams containing topics and payloads from external sensors or clients.
+2.  **Message Processing**: Parses structured UDP data into standardized application-layer frames.
+3.  **Topic Routing**: The `TopicTrie` matches the incoming message topic against active subscription patterns.
+4.  **TCP Egress**: Dispatches data to matching subscribers using a custom framing protocol to ensure message integrity over the TCP stream.
 
-Dupa care, server-ul accepta noi conexiuni. Pentru aceasta, imediat ce primeste
-conexiunea, se primeste si ID-ul sau, ce este verificat daca exista deja in
-tabela de dispersie, caz in care este dat afara. Dupa aceasta, este marcat
-ca si conectat in aceasta tabela, completandu-se si socket-ul corespunzator si
-este introdus si in tabela socket-client ID. Dupa care, este introdus in vectorul
-de `pollfd`-uri, pentru a i se putea face poll, iar apoi este afisat un mesaj
-corespunzator in terminal.
+## Getting Started
 
-Apoi, se itereaza prin toti clientii TCP conectati. Pentru fiecare se verifica
-daca acesta s-a deconectat (caz in care se actioneaza in consecinta, eliminandu-l
-din poll, marcandu-l ca deconectat , scotandu-l din tabela cu clienti conectati
-si afisand un mesaj corespunzator). Daca s-au primit bytes, atunci aceasta ar
-trebui sa fie o cerere de abonare/dezabonare, fapt marcat in primul octet trimis.
-In urma acestei cereri, clientului i se va trimite inapoi un mesaj de confirmare
-(acelasi pachet, doar ca cu primul octet modificat corespunzator), prin
-care va sti ca a fost abonat/dezabonat de la topicurile respective.
+### Prerequisites
+* GCC/G++ compiler
+* Linux-based environment (POSIX sockets)
 
-Dupa care, sunt trimise din coada unul cate unul mesajele catre abonati, iterand
-prin tabela cu clienti conectati. La fiecare, se verifica daca topicul mesajului
-corespunde cu topicurile la care clientul este abonat (pentru aceasta se fac
-copii la aceste siruri de caractere, ce sunt tokenizate dupa `/`) si daca da
-se trimite catre acesta, intai un byte ce semnalizeaza ca este un mesaj de primit
-(ci nu o confirmare a abonarii/dezabonarii), dupa care se trimite mesajul cu
-headere catre client.
+### Installation
+1. Clone the repository and navigate in its directory
+2. Run `make`
 
-La final, sunt inchise toate socket-urile.
+## Execution
 
-## Functionarea clientului
+1. **Start the broker**
+```bash
+./server <PORT>
+```
+*Example*: `./server 8080`
 
-Clientul incepe prin verificarea validitatii parametrilor din linia de comanda,
-dupa care is deschide un socket TCP cu care se conecteaza la server. Imediat
-dupa, is trimite ID-ul. Dupa care, impreuna cu `stdin`, socket-ul este adaugat
-la poll.
+2. **Connect a Subscriber**
+```bash
+./subscriber <CLIENT_ID> <SERVER_IP> <SERVER_PORT>
+```
+*Example*: `./subscriber C1 127.0.0.1 8080`
 
-Apoi, la fiecare iteratie, clientul face poll si verifica daca a fost introdusa
-o comanda. La comanda `exit`, pur si simplu se inchide. La comenzile de
-`subscribe` sau `unsubscribe` sunt trimise pachete corespunzatoare catre
-server care indica aceasta intentie, folosind structura `subscribe_request`
-ce include operatia de efectuat si topicul la care se doreste (dez)abonarea.
+## Custom Protocol
 
-Dupa care, se verifica daca serverul s-a deconat, caz in care clientul se
-inchide imediat. In cazul in care sunt date de receptionat, intai se
-receptioneaza un byte, ce determina daca s-a primit un mesaj sau o
-confirmare a unei (dez)abonari. Daca se primeste un mesaj, acesta este
-afisat conform cerintei. Iar daca se primeste o confirmare, din nou,
-se afiseaza conform cerintei.
+Because TCP is a stream-oriented protocol, this project implements a custom framing layer to handle message boundaries
 
-La final, este inchis singurul socket deschis.
+* **Message Integrity**: Uses `sendall` and `recvall` wrappers to handle partial reads and fragmentation.
 
-## Fisierele `utils.hpp` si `utils.cpp`
+* **Handshake**: Clients identify via a unique ID to facilitate session persistence.
 
-In cadrul acestora am definit functia`DIE`, pentru a putea verifica usor
-si citet rezultatul apelurilor de sistem si a afisa un mesaj si opri programele
-in caz de eroare.
-
-Dupa care am adaugat functiile `sendall` si `recvall` pentru a trimite/primi
-pachete TCP in intregime (inclusiv daca acestea sunt fragmentate in mai multe bucati).
-Apoi am definit structurile `message`, `message_with_header` si `subcribe_request`,
-structuri ce transmise intre client si server, ce au `__attribute__((packed))` pentru
-a face sigura trimiterea lor pe retea. 
-
-Iar in fisierul `utils.cpp` am implementarea acestor functii, inclusiv a unor
-functii menite sa ajute la afisarea pachetelor primite de clientii TCP asa cum
-a fost specificat in cerinta.
-
+* **Asynchronous Commands**: Supports concurrent `subscribe`, `unsubscribe`, and `exit` commands via multiplexed input from `stdin`.

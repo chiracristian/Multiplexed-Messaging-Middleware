@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// Copyright (c) 2025–2026 Cristian-Ioan-George Chira
+
 #include "utils.hpp"
 
 #include <arpa/inet.h>

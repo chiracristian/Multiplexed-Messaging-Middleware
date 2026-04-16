@@ -61,3 +61,8 @@ Because TCP is a stream-oriented protocol, this project implements a custom fram
 * **Handshake**: Clients identify via a unique ID to facilitate session persistence.
 
 * **Asynchronous Commands**: Supports concurrent `subscribe`, `unsubscribe`, and `exit` commands via multiplexed input from `stdin`.
+
+## Acknowledgements
+
+* This project was developed as part of the *Communication Protocols* course, within the *Faculty of Automatic Control and Computer Science* from *National University of Science and Technology Politehnica Bucharest*
+* The UDP test client (in the `pcom_hw2_udp_client` directory) and the `test.py` script were written by the *Communication Protocols* course team.

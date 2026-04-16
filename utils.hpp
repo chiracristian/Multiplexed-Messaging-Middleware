@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// Copyright (c) 2025–2026 Cristian-Ioan-George Chira
+
 #ifndef UTILS_H_INCLUDED
 #define UTILS_H_INCLUDED
 
